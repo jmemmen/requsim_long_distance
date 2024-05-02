@@ -147,7 +147,7 @@ def run(L_1, L_2, params, max_iter, mode="sim"):
     F_INIT = params.get("F_INIT", 1.0)  # initial fidelity of created pairs
     ETA_TOT_1 = params.get("ETA_TOT_1", 0.0135) # transmittance first link
     ETA_TOT_2 = params.get("ETA_TOT_2", 0.00225) # transmittance second link
-    P_D_1 = params.get("P_D_1", 800e-9) # dark count probability first detector 
+    P_D_1 = params.get("P_D_1", 800e-9) # dark count probability first detector
     P_D_2 = params.get("P_D_2", 50e-9) # dark count probability second detector
     try:
         T_DP = params["T_DP"]  # dephasing time
@@ -202,9 +202,23 @@ if __name__ == "__main__":
     T_P_array = np.linspace(10e-6, 10e-2, 1)
     eff_length_1 = convert_dB_to_eff_km(24.4)
     eff_length_2 = convert_dB_to_eff_km(23.4)
-    for i in T_P_array:
-        print(f"preparation time: {i}")
-        p = run(L_1=eff_length_1, L_2=eff_length_2, params={"T_DP": 1, "T_P":i}, max_iter=1, mode="sim")
-        print(p.data)
+    # evaluation in one go
+    # for i in T_P_array:
+    #     print(f"preparation time: {i}")
+    #     p = run(L_1=eff_length_1, L_2=eff_length_2, params={"T_DP": 1, "T_P":i}, max_iter=1, mode="sim")
+    #     print(p.data)
+
+    # split into tasks
+    task_index = int(os.environ["SLURM_ARRAY_TASK_ID"])
+    prep_time = T_P_array[task_index]
+    p = run(L_1=eff_length_1, L_2=eff_length_2, params={"T_DP": 1, "T_P":prep_time}, max_iter=10**4, mode="sim")
+    evaluation = standard_bipartite_evaluation(p.data)
+    fidelity = evaluation[0]
+    key_rate = evaluation[3]
+
+    output_file = "results/single_link_qnetq2.txt"
+    # append the output to the file
+    with open(output_file, "a") as file:
+        file.write(f"Task {task_index}: T_P = {prep_time}, Fidelity = {fidelity}, Key rate = {key_rate}\n")
 
 
