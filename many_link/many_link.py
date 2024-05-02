@@ -1,4 +1,4 @@
-import os, sys; sys.path.insert(0, os.path.abspath("."))
+import os, sys; sys.path.insert(0, os.path.abspath(".."))
 import numpy as np
 import pandas as pd
 from functools import lru_cache
