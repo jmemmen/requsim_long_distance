@@ -1,4 +1,12 @@
-import os, sys; sys.path.insert(0, os.path.abspath(".."))
+import os, sys
+
+sys.path.insert(0, os.path.abspath("."))
+# check for correct path
+# directory = os.path.abspath(".")
+# sys.path.insert(0, directory)
+
+# print("Directory: ", directory)
+
 from quantum_objects import Source, SchedulingSource, Station, Pair
 from protocol import TwoLinkProtocol
 from requsim.world import World
@@ -6,13 +14,13 @@ from events import SourceEvent, GenericEvent, EntanglementSwappingEvent
 import requsim.libs.matrix as mat
 import numpy as np
 from requsim.tools.noise_channels import x_noise_channel, y_noise_channel, z_noise_channel, w_noise_channel
-from requsim.libs.aux_functions import apply_single_qubit_map
-import matplotlib.pyplot as plt
+from libs.aux_functions import apply_single_qubit_map, standard_bipartite_evaluation
+#import matplotlib.pyplot as plt
 from warnings import warn
 import math
 
 ETA_P = 0.15  # preparation efficiency
-ETA_C = 0.15  # phton-fiber coupling efficiency * wavelength conversion
+ETA_C = 0.15  # photon-fiber coupling efficiency * wavelength conversion
 T_2 = 1  # dephasing time
 C = 2 * 10**8 # speed of light in optical fiber
 L_ATT = 22 * 10**3  # attenuation length
@@ -31,11 +39,11 @@ F = 1.16  # error correction inefficiency
 ETA_TOT_1 = ETA_P * ETA_C * ETA_D_1
 ETA_TOT_2 = ETA_P * ETA_C * ETA_D_2
 
-## convert dB to a distance having the same loss (for L_ATT=22)
-def convert_dB_to_eff_km(dB):
-    eff_length = dB*L_ATT/(10*np.log10(math.e))
+## convert dB to an efficiency
+def convert_dB_to_efficiency(dB):
+    efficiency = 10**(-dB/10)
 
-    return eff_length
+    return efficiency
 
 def construct_dephasing_noise_channel(dephasing_time):
     def lambda_dp(t):
@@ -199,9 +207,9 @@ def run(L_1, L_2, params, max_iter, mode="sim"):
 
 
 if __name__ == "__main__":
-    T_P_array = np.linspace(10e-6, 10e-2, 1)
-    eff_length_1 = convert_dB_to_eff_km(24.4)
-    eff_length_2 = convert_dB_to_eff_km(23.4)
+    T_P_array = np.linspace(10e-6, 10e-9, 80)
+    eff_link_1 = convert_dB_to_efficiency(24.4)
+    eff_link_2 = convert_dB_to_efficiency(23.4)
     # evaluation in one go
     # for i in T_P_array:
     #     print(f"preparation time: {i}")
@@ -211,12 +219,12 @@ if __name__ == "__main__":
     # split into tasks
     task_index = int(os.environ["SLURM_ARRAY_TASK_ID"])
     prep_time = T_P_array[task_index]
-    p = run(L_1=eff_length_1, L_2=eff_length_2, params={"T_DP": 1, "T_P":prep_time}, max_iter=10**4, mode="sim")
+    p = run(L_1=90e3, L_2=91.2e3, params={"T_DP": 1, "T_P":prep_time, "ETA_TOT_1": eff_link_1*ETA_TOT_1, "ETA_TOT_1": eff_link_2*ETA_TOT_2}, max_iter=10**4, mode="sim")
     evaluation = standard_bipartite_evaluation(p.data)
     fidelity = evaluation[0]
     key_rate = evaluation[3]
 
-    output_file = "results/single_link_qnetq2.txt"
+    output_file = "results/single_link_no_cut_off.txt"
     # append the output to the file
     with open(output_file, "a") as file:
         file.write(f"Task {task_index}: T_P = {prep_time}, Fidelity = {fidelity}, Key rate = {key_rate}\n")
