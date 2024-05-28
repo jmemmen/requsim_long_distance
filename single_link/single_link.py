@@ -20,12 +20,12 @@ from requsim.tools.evaluation import standard_bipartite_evaluation
 from warnings import warn
 import math
 
-max_iter = 10**2
+max_iter = 10**1
 
 ETA_P = 0.6  # preparation efficiency
 
 T_2 = 1  # dephasing time
-T_CUT = None  # cutoff time
+T_CUT = 0.2  # cutoff time
 
 C = 2 * 10**8 # speed of light in optical fibre
 L_ATT = 22 * 10**3  # attenuation length
@@ -44,7 +44,7 @@ eta_2 = ETA_P * ETA_D_2
 
 
 
-## debugging check
+## debugging check for AttributeError: 'DiscardQubitEvent' object has no attribute 'req_objects_exist'
 # world = World()
 # station_A = Station(world, position=0, memory_noise=None)
 # station_B = Station(world, position=1, memory_noise=None)
@@ -206,7 +206,7 @@ def run(L_1, L_2, params, max_iter, mode="sim"):
     protocol = LuetkenhausProtocol(world, mode=mode)
     protocol.setup()
 
-
+    # # filter to discard events from time to time, use when using cutoff times
     # filter_interval = int(1e4)
 
     # world.event_queue.add_recurring_filter(
@@ -227,7 +227,7 @@ def run(L_1, L_2, params, max_iter, mode="sim"):
 
 if __name__ == "__main__":
 
-    # evaluation on local computer
+    # evaluation on local computer, simple loop
     # T_P_array = np.linspace(1e-6, 1e-6, 1)
     # loss_1_db = 24.4
     # loss_2_db = 23.4
@@ -242,7 +242,7 @@ if __name__ == "__main__":
     #     print(evaluation)
 
 
-    # evaluation on cluster
+    # evaluation on cluster, split into jobs
     task_index = int(os.environ["SLURM_ARRAY_TASK_ID"])
 
     T_P_array = np.linspace(1e-6, 1e-8, 5)
@@ -251,25 +251,23 @@ if __name__ == "__main__":
     eff_link_1 = convert_dB_to_efficiency(loss_1_db)
     eff_link_2 = convert_dB_to_efficiency(loss_2_db)
 
-    output_file = "results/single_link_new.txt"
+    output_file = "results/single_link_cut2.txt"
     with open(output_file, "a") as file:
-        # Write parameters to the output file if it's the first task
+        # write parameters to the output file if it's the first task
         if task_index == 0:
             file.write("Parameters:\n")
             file.write(f"Efficiency Link 1: efficiency link: {eff_link_1}, efficiency detector/source: {eta_1}\n")
             file.write(f"Efficiency Link 2: efficiency link: {eff_link_2}, efficiency detector/source: {eta_2}\n")
             file.write(f"T_DP = {T_2}, T_CUT = {T_CUT}, max_iter = {max_iter}, mode=sim\n")
 
-        # Extract prep_time for this task based on task_index
         prep_time = T_P_array[task_index]
 
-        # Run the task
         p = run(L_1=90e3, L_2=91.2e3, params={"T_DP": 1, "T_P": prep_time, "T_CUT": T_CUT, "ETA_TOT_1": eff_link_1*eta_1, "ETA_TOT_2": eff_link_2*eta_2}, max_iter=max_iter, mode="sim")
         evaluation = standard_bipartite_evaluation(p.data)
         fidelity = evaluation[1]
         key_rate = evaluation[3]
 
-        # Append the output to the file
+        # append the output to the file
         file.write(f"Task {task_index}: T_P = {prep_time}, Fidelity = {fidelity}, Key rate per time = {key_rate}\n")
 
 
