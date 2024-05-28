@@ -1,30 +1,35 @@
 import os, sys
 
+# # check for correct path
 sys.path.insert(0, os.path.abspath("."))
-# check for correct path
 # directory = os.path.abspath(".")
 # sys.path.insert(0, directory)
-
 # print("Directory: ", directory)
 
-from quantum_objects import Source, SchedulingSource, Station, Pair
-from protocol import TwoLinkProtocol
+import requsim
+from quantum_objects import Source, SchedulingSource, Station, Pair, Qubit
+from requsim.tools.protocol import TwoLinkProtocol
 from requsim.world import World
 from events import SourceEvent, GenericEvent, EntanglementSwappingEvent
+from requsim.events import EventQueue, DiscardQubitEvent
 import requsim.libs.matrix as mat
 import numpy as np
 from requsim.tools.noise_channels import x_noise_channel, y_noise_channel, z_noise_channel, w_noise_channel
-from libs.aux_functions import apply_single_qubit_map, standard_bipartite_evaluation
-#import matplotlib.pyplot as plt
+from requsim.libs.aux_functions import apply_single_qubit_map
+from requsim.tools.evaluation import standard_bipartite_evaluation
 from warnings import warn
 import math
 
-ETA_P = 0.15  # preparation efficiency
-ETA_C = 0.15  # photon-fiber coupling efficiency * wavelength conversion
+max_iter = 10**2
+
+ETA_P = 0.6  # preparation efficiency
+
 T_2 = 1  # dephasing time
-C = 2 * 10**8 # speed of light in optical fiber
+T_CUT = None  # cutoff time
+
+C = 2 * 10**8 # speed of light in optical fibre
 L_ATT = 22 * 10**3  # attenuation length
-E_M_A = 0  # misalignment error
+
 
 P_D_1 = 800e-9  # dark count probability per detector 1
 P_D_2 = 50e-9  # dark count probability per detector 2
@@ -32,14 +37,25 @@ P_D_2 = 50e-9  # dark count probability per detector 2
 ETA_D_1 = 0.6  # detector efficiency for station 1
 ETA_D_2 = 0.1  # detector efficiency for station 2
 
-P_BSM = 1  # BSM success probability  ## WARNING: Currently not implemented
-LAMBDA_BSM = 1  # BSM ideality parameter
-F = 1.16  # error correction inefficiency
 
-ETA_TOT_1 = ETA_P * ETA_C * ETA_D_1
-ETA_TOT_2 = ETA_P * ETA_C * ETA_D_2
+eta_1 = ETA_P * ETA_D_1
+eta_2 = ETA_P * ETA_D_2
 
-## convert dB to an efficiency
+
+
+
+## debugging check
+# world = World()
+# station_A = Station(world, position=0, memory_noise=None)
+# station_B = Station(world, position=1, memory_noise=None)
+# qubit = Qubit(world, station_A)
+# event1 = DiscardQubitEvent(1,qubit)
+# #print(dir(event1))
+# print(hasattr(event1, 'req_objects_exist'))
+
+
+
+# convert dB to an efficiency
 def convert_dB_to_efficiency(dB):
     efficiency = 10**(-dB/10)
 
@@ -53,12 +69,6 @@ def construct_dephasing_noise_channel(dephasing_time):
         return z_noise_channel(rho=rho, epsilon=lambda_dp(t))
 
     return dephasing_noise_channel
-
-
-
-
-def imperfect_bsm_err_func(four_qubit_state):
-    return LAMBDA_BSM * four_qubit_state + (1 - LAMBDA_BSM) * mat.reorder(mat.tensor(mat.ptrace(four_qubit_state, [1, 2]), mat.I(4) / 4), [0, 2, 3, 1])
 
 
 
@@ -83,9 +93,9 @@ class LuetkenhausProtocol(TwoLinkProtocol):
         if mode != "seq" and mode != "sim":
             raise ValueError("LuetkenhausProtocol does not support mode %s. Use \"seq\" for sequential state generation, or \"sim\" for simultaneous state generation.")
         self.mode = mode
-        super(LuetkenhausProtocol, self).__init__(world)
+        super(LuetkenhausProtocol, self).__init__(world, communication_speed=C)
 
-    def check(self):
+    def check(self, current_message=None):
         """Checks world state and schedules new events.
 
         Summary of the Protocol:
@@ -124,7 +134,7 @@ class LuetkenhausProtocol(TwoLinkProtocol):
                 self.source_B.schedule_event()
             return
         if num_right_pairs == 1 and num_left_pairs == 1:
-            ent_swap_event = EntanglementSwappingEvent(time=self.world.event_queue.current_time, pairs=[left_pairs[0], right_pairs[0]], error_func=imperfect_bsm_err_func)
+            ent_swap_event = EntanglementSwappingEvent(time=self.world.event_queue.current_time, pairs=[left_pairs[0], right_pairs[0]])
             self.world.event_queue.add_event(ent_swap_event)
             return
 
@@ -143,18 +153,17 @@ class LuetkenhausProtocol(TwoLinkProtocol):
 # L_1, L_2 effective lengths of first and second link respectively
 def run(L_1, L_2, params, max_iter, mode="sim"):
 
-    allowed_params = ["P_LINK", "T_P", "E_MA", "LAMBDA_BSM", "F_INIT", "T_DP", "ETA_TOT_1", "ETA_TOT_2", "P_D_1", "P_D_2"]
+    allowed_params = ["P_LINK", "T_P", "T_CUT", "F_INIT", "T_DP", "ETA_TOT_1", "ETA_TOT_2", "P_D_1", "P_D_2"]
     for key in params:
         if key not in allowed_params:
             warn(f"params[{key}] is not a supported parameter and will be ignored.")
     # unpack the parameters
     P_LINK = params.get("P_LINK", 1.0)
-    T_P = params.get("T_P", 0)  # preparation time
-    E_MA = params.get("E_MA", 0)  # misalignment error
-    LAMBDA_BSM = params.get("LAMBDA_BSM", 1)  # Bell state measurement ideality parameter
+    T_P = params.get("T_P", 1e-6)  # preparation time
+    T_CUT = params.get("T_CUT", None) # cutoff time
     F_INIT = params.get("F_INIT", 1.0)  # initial fidelity of created pairs
-    ETA_TOT_1 = params.get("ETA_TOT_1", 0.0135) # transmittance first link
-    ETA_TOT_2 = params.get("ETA_TOT_2", 0.00225) # transmittance second link
+    ETA_TOT_1 = params.get("ETA_TOT_1", 0.36) # efficiency first link
+    ETA_TOT_2 = params.get("ETA_TOT_2", 0.06) # efficiency second link
     P_D_1 = params.get("P_D_1", 800e-9) # dark count probability first detector
     P_D_2 = params.get("P_D_2", 50e-9) # dark count probability second detector
     try:
@@ -165,7 +174,7 @@ def run(L_1, L_2, params, max_iter, mode="sim"):
     def luetkenhaus_time_distribution(source, ETA_TOT, P_D):
         comm_distance = np.max([np.abs(source.position - source.target_stations[0].position), np.abs(source.position - source.target_stations[1].position)])
         comm_time = 2 * comm_distance / C
-        eta = ETA_TOT * np.exp(-comm_distance / L_ATT)
+        eta = ETA_TOT
         eta_effective = 1 - (1 - eta) * (1 - P_D)**2
         trial_time = T_P + comm_time
         random_num = np.random.geometric(eta_effective)
@@ -179,54 +188,85 @@ def run(L_1, L_2, params, max_iter, mode="sim"):
             if station.memory_noise is not None:
                 state = apply_single_qubit_map(map_func=station.memory_noise, qubit_index=idx, rho=state, t=storage_time)
             if station.memory_noise is None:
-                state = apply_single_qubit_map(map_func=y_noise_channel, qubit_index=idx, rho=state, epsilon=E_M_A)
-                eta = ETA_TOT * np.exp(-comm_distance / L_ATT)
+                state = apply_single_qubit_map(map_func=y_noise_channel, qubit_index=idx, rho=state, epsilon=0)
+                eta = ETA_TOT
                 state = apply_single_qubit_map(map_func=w_noise_channel, qubit_index=idx, rho=state, alpha=alpha_of_eta(eta, P_D))
         return state
 
-    def imperfect_bsm_err_func(four_qubit_state):
-        return LAMBDA_BSM * four_qubit_state + (1-LAMBDA_BSM) * mat.reorder(mat.tensor(mat.ptrace(four_qubit_state, [1, 2]), mat.I(4) / 4), [0, 2, 3, 1])
 
     def alpha_of_eta(eta, P_D):
         return eta * (1 - P_D) / (1 - (1 - eta) * (1 - P_D)**2)
 
     world = World()
-    station_A = Station(world, position=0, memory_noise=None)
+    station_A = Station(world, position=0, memory_noise=None, memory_cutoff_time=T_CUT)
     station_central = Station(world, position=L_1, memory_noise=construct_dephasing_noise_channel(dephasing_time=T_2))
-    station_B = Station(world, position=L_1+L_2, memory_noise=None)
+    station_B = Station(world, position=L_1+L_2, memory_noise=None, memory_cutoff_time=T_CUT)
     source_A = SchedulingSource(world, position=L_1, target_stations=[station_A, station_central], time_distribution=lambda source: luetkenhaus_time_distribution(source, ETA_TOT_1, P_D_1), state_generation=lambda source: luetkenhaus_state_generation(source, ETA_TOT_1, P_D_1))
     source_B = SchedulingSource(world, position=L_1, target_stations=[station_central, station_B], time_distribution=lambda source: luetkenhaus_time_distribution(source, ETA_TOT_2, P_D_2), state_generation=lambda source: luetkenhaus_state_generation(source, ETA_TOT_2, P_D_2))
     protocol = LuetkenhausProtocol(world, mode=mode)
     protocol.setup()
 
+
+    # filter_interval = int(1e4)
+
+    # world.event_queue.add_recurring_filter(
+    # condition=lambda event: isinstance(event, DiscardQubitEvent) and
+    #                         event.type == "DiscardQubitEvent" and
+    #                         not event.req_objects_exist(),
+    # filter_interval=filter_interval,
+    # )
+
+    # main loop
+    current_message = None
     while len(protocol.time_list) < max_iter:
-        protocol.check()
-        world.event_queue.resolve_next_event()
+        protocol.check(current_message)
+        current_message = world.event_queue.resolve_next_event()
 
     return protocol
 
 
 if __name__ == "__main__":
-    T_P_array = np.linspace(10e-6, 10e-9, 80)
-    eff_link_1 = convert_dB_to_efficiency(24.4)
-    eff_link_2 = convert_dB_to_efficiency(23.4)
-    # evaluation in one go
-    # for i in T_P_array:
-    #     print(f"preparation time: {i}")
-    #     p = run(L_1=eff_length_1, L_2=eff_length_2, params={"T_DP": 1, "T_P":i}, max_iter=1, mode="sim")
-    #     print(p.data)
 
-    # split into tasks
+    # Read the task ID from the SLURM environment
     task_index = int(os.environ["SLURM_ARRAY_TASK_ID"])
-    prep_time = T_P_array[task_index]
-    p = run(L_1=90e3, L_2=91.2e3, params={"T_DP": 1, "T_P":prep_time, "ETA_TOT_1": eff_link_1*ETA_TOT_1, "ETA_TOT_1": eff_link_2*ETA_TOT_2}, max_iter=10**4, mode="sim")
-    evaluation = standard_bipartite_evaluation(p.data)
-    fidelity = evaluation[0]
-    key_rate = evaluation[3]
 
-    output_file = "results/single_link_no_cut_off.txt"
-    # append the output to the file
+    # Define your parameters
+    T_P_array = np.linspace(1e-6, 1e-8, 5)
+    loss_1_db = 24.4
+    loss_2_db = 23.4
+    eff_link_1 = convert_dB_to_efficiency(loss_1_db)
+    eff_link_2 = convert_dB_to_efficiency(loss_2_db)
+
+    # Open the output file
+    output_file = "results/single_link_new.txt"
     with open(output_file, "a") as file:
-        file.write(f"Task {task_index}: T_P = {prep_time}, Fidelity = {fidelity}, Key rate = {key_rate}\n")
+        # Write parameters to the output file if it's the first task
+        if task_index == 0:
+            file.write("Parameters:\n")
+            file.write(f"Efficiency Link 1: efficiency link: {eff_link_1}, efficiency detector/source: {eta_1}\n")
+            file.write(f"Efficiency Link 2: efficiency link: {eff_link_2}, efficiency detector/source: {eta_2}\n")
+            file.write(f"T_DP = {T_2}, T_CUT = {T_CUT}, max_iter = {max_iter}, mode=sim\n")
+
+        # Extract prep_time for this task based on task_index
+        prep_time = T_P_array[task_index]
+
+        # Run the task
+        p = run(L_1=90e3, L_2=91.2e3, params={"T_DP": 1, "T_P": prep_time, "T_CUT": T_CUT, "ETA_TOT_1": eff_link_1*eta_1, "ETA_TOT_2": eff_link_2*eta_2}, max_iter=max_iter, mode="sim")
+        evaluation = standard_bipartite_evaluation(p.data)
+        fidelity = evaluation[1]
+        key_rate = evaluation[3]
+
+        # Append the output to the file
+        file.write(f"Task {task_index}: T_P = {prep_time}, Fidelity = {fidelity}, Key rate per time = {key_rate}\n")
+
+
+
+
+
+
+
+
+
+
 
 
