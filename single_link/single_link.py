@@ -227,17 +227,30 @@ def run(L_1, L_2, params, max_iter, mode="sim"):
 
 if __name__ == "__main__":
 
-    # Read the task ID from the SLURM environment
+    # evaluation on local computer
+    # T_P_array = np.linspace(1e-6, 1e-6, 1)
+    # loss_1_db = 24.4
+    # loss_2_db = 23.4
+    # eff_link_1 = convert_dB_to_efficiency(loss_1_db)
+    # eff_link_2 = convert_dB_to_efficiency(loss_2_db)
+
+    # for i in T_P_array:
+    #     print(f"preparation time: {i}")
+    #     p = run(L_1=90e3, L_2=91.2e3, params={"T_DP": 1, "T_P":i, "T_CUT":T_CUT, "ETA_TOT_1": eff_link_1*eta_1, "ETA_TOT_2": eff_link_2*eta_2}, max_iter=5, mode="sim")
+    #     states = p.data["state"]
+    #     evaluation = standard_bipartite_evaluation(p.data)
+    #     print(evaluation)
+
+
+    # evaluation on cluster
     task_index = int(os.environ["SLURM_ARRAY_TASK_ID"])
 
-    # Define your parameters
     T_P_array = np.linspace(1e-6, 1e-8, 5)
     loss_1_db = 24.4
     loss_2_db = 23.4
     eff_link_1 = convert_dB_to_efficiency(loss_1_db)
     eff_link_2 = convert_dB_to_efficiency(loss_2_db)
 
-    # Open the output file
     output_file = "results/single_link_new.txt"
     with open(output_file, "a") as file:
         # Write parameters to the output file if it's the first task
