@@ -25,7 +25,7 @@ max_iter = 10**1
 ETA_P = 0.6  # preparation efficiency
 
 T_2 = 1  # dephasing time
-T_CUT = 0.2  # cutoff time
+T_CUT = 5  # cutoff time
 
 C = 2 * 10**8 # speed of light in optical fibre
 L_ATT = 22 * 10**3  # attenuation length
@@ -198,23 +198,23 @@ def run(L_1, L_2, params, max_iter, mode="sim"):
         return eta * (1 - P_D) / (1 - (1 - eta) * (1 - P_D)**2)
 
     world = World()
-    station_A = Station(world, position=0, memory_noise=None, memory_cutoff_time=T_CUT)
-    station_central = Station(world, position=L_1, memory_noise=construct_dephasing_noise_channel(dephasing_time=T_2))
-    station_B = Station(world, position=L_1+L_2, memory_noise=None, memory_cutoff_time=T_CUT)
+    station_A = Station(world, position=0, memory_noise=None)
+    station_central = Station(world, position=L_1, memory_noise=construct_dephasing_noise_channel(dephasing_time=T_2), memory_cutoff_time=T_CUT)
+    station_B = Station(world, position=L_1+L_2, memory_noise=None)
     source_A = SchedulingSource(world, position=L_1, target_stations=[station_A, station_central], time_distribution=lambda source: luetkenhaus_time_distribution(source, ETA_TOT_1, P_D_1), state_generation=lambda source: luetkenhaus_state_generation(source, ETA_TOT_1, P_D_1))
     source_B = SchedulingSource(world, position=L_1, target_stations=[station_central, station_B], time_distribution=lambda source: luetkenhaus_time_distribution(source, ETA_TOT_2, P_D_2), state_generation=lambda source: luetkenhaus_state_generation(source, ETA_TOT_2, P_D_2))
     protocol = LuetkenhausProtocol(world, mode=mode)
     protocol.setup()
 
     # # filter to discard events from time to time, use when using cutoff times
-    # filter_interval = int(1e4)
+    filter_interval = int(1e4)
 
-    # world.event_queue.add_recurring_filter(
-    # condition=lambda event: isinstance(event, DiscardQubitEvent) and
-    #                         event.type == "DiscardQubitEvent" and
-    #                         not event.req_objects_exist(),
-    # filter_interval=filter_interval,
-    # )
+    world.event_queue.add_recurring_filter(
+    condition=lambda event: isinstance(event, DiscardQubitEvent) and
+                            event.type == "DiscardQubitEvent" and
+                            not event.req_objects_exist(),
+    filter_interval=filter_interval,
+    )
 
     # main loop
     current_message = None
@@ -251,7 +251,7 @@ if __name__ == "__main__":
     eff_link_1 = convert_dB_to_efficiency(loss_1_db)
     eff_link_2 = convert_dB_to_efficiency(loss_2_db)
 
-    output_file = "results/single_link_cut2.txt"
+    output_file = "results/single_link_central.txt"
     with open(output_file, "a") as file:
         # write parameters to the output file if it's the first task
         if task_index == 0:
