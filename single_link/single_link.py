@@ -26,7 +26,7 @@ max_iter = 10**1
 ETA_P = 0.6  # preparation efficiency
 
 T_2 = 1  # dephasing time
-T_CUT = 5  # cutoff time
+T_CUT = 1  # cutoff time
 
 C = 2 * 10**8 # speed of light in optical fibre
 L_ATT = 22 * 10**3  # attenuation length
@@ -73,87 +73,48 @@ def construct_dephasing_noise_channel(dephasing_time):
     return NoiseChannel(n_qubits=1, channel_function=dephasing_noise_channel)
 
 
+class SimpleProtocol(TwoLinkProtocol):
 
-
-class LuetkenhausProtocol(TwoLinkProtocol):
-    """The Luetkenhaus Protocol.
-
-    Parameters
-    ----------
-    world : World
-        The world in which the protocol will be performed.
-    mode : {"seq", "sim"}
-        Selects sequential or simultaneous generation of links.
-
-    Attributes
-    ----------
-    mode : str
-        "seq" or "sim"
-
-    """
-    def __init__(self, world, mode="seq"):
-        if mode != "seq" and mode != "sim":
-            raise ValueError("LuetkenhausProtocol does not support mode %s. Use \"seq\" for sequential state generation, or \"sim\" for simultaneous state generation.")
-        self.mode = mode
-        super(LuetkenhausProtocol, self).__init__(world, communication_speed=C)
-
-    def check(self, current_message=None):
-        """Checks world state and schedules new events.
-
-        Summary of the Protocol:
-        Establish a left link and a right link.
-        Then perform entanglement swapping.
-        Record metrics about the long distance pair.
-        Repeat.
-
-        Returns
-        -------
-        None
-
-        """
-        # this protocol will only ever act if the event_queue is empty
-        if self.world.event_queue:
-            return
-        try:
-            pairs = self.world.world_objects["Pair"]
-        except KeyError:
-            pairs = []
-        # if there are no pairs, begin protocol
-        if not pairs:
-            if self.mode == "seq":
-                self.source_A.schedule_event()
-            elif self.mode == "sim":
-                self.source_A.schedule_event()
-                self.source_B.schedule_event()
-            return
-        # in sequential mode, if there is only a pair on the left side, schedule creation of right pair
+    def check(self, message=None):
+        
         left_pairs = self._get_left_pairs()
         num_left_pairs = len(left_pairs)
+        num_left_pairs_scheduled = len(self._left_pairs_scheduled())
         right_pairs = self._get_right_pairs()
         num_right_pairs = len(right_pairs)
-        if num_right_pairs == 0 and num_left_pairs == 1:
-            if self.mode == "seq":
-                self.source_B.schedule_event()
-            return
-        if num_right_pairs == 1 and num_left_pairs == 1:
-            ent_swap_event = EntanglementSwappingEvent(time=self.world.event_queue.current_time, pairs=[left_pairs[0], right_pairs[0]], station=self.station_central)
-            self.world.event_queue.add_event(ent_swap_event)
-            return
+        num_right_pairs_scheduled = len(self._right_pairs_scheduled())
+        long_distance_pairs = self._get_long_range_pairs()
 
-        long_range_pairs = self._get_long_range_pairs()
-        if long_range_pairs:
-            long_range_pair = long_range_pairs[0]
-            self._eval_pair(long_range_pair)
-            # cleanup
-            long_range_pair.qubits[0].destroy()
-            long_range_pair.qubits[1].destroy()
-            long_range_pair.destroy()
-            self.check()
-            return
-        warn("LuetkenhausProtocol encountered unknown world state. May be trapped in an infinite loop?")
+        # STEP 1: For each link, if there are no pairs established and
+        #         no pairs scheduled: Schedule a pair.
+        if num_left_pairs + num_left_pairs_scheduled == 0:
+            self.source_A.schedule_event()
+        if num_right_pairs + num_right_pairs_scheduled == 0:
+            self.source_B.schedule_event()
+
+        # STEP 2: If both links are present, do entanglement swapping.
+        if num_left_pairs == 1 and num_right_pairs == 1:
+            left_pair = left_pairs[0]
+            right_pair = right_pairs[0]
+            ent_swap_event = EntanglementSwappingEvent(
+                time=self.world.event_queue.current_time,
+                pairs=[left_pair, right_pair],
+                station=self.station_central,
+            )
+            self.world.event_queue.add_event(ent_swap_event)
+
+        # STEP 3: If a long range pair is present, save its data and delete
+        #         the associated objects.
+        if long_distance_pairs:
+            for pair in long_distance_pairs:
+                self._eval_pair(pair)
+                for qubit in pair.qubits:
+                    qubit.destroy()
+                pair.destroy()
+
 
 # L_1, L_2 effective lengths of first and second link respectively
-def run(L_1, L_2, params, max_iter, mode="sim"):
+def run(L_1, L_2, params, max_iter):
 
     allowed_params = ["P_LINK", "T_P", "T_CUT", "F_INIT", "T_DP", "ETA_TOT_1", "ETA_TOT_2", "P_D_1", "P_D_2"]
     for key in params:
@@ -205,15 +166,21 @@ def run(L_1, L_2, params, max_iter, mode="sim"):
     station_B = Station(world, position=L_1+L_2, memory_noise=None, dark_count_probability=P_D_2)
     source_A = SchedulingSource(world, position=L_1, target_stations=[station_A, station_central], time_distribution=lambda source: luetkenhaus_time_distribution(source, ETA_TOT_1, P_D_1), state_generation=lambda source: luetkenhaus_state_generation(source, ETA_TOT_1, P_D_1))
     source_B = SchedulingSource(world, position=L_1, target_stations=[station_central, station_B], time_distribution=lambda source: luetkenhaus_time_distribution(source, ETA_TOT_2, P_D_2), state_generation=lambda source: luetkenhaus_state_generation(source, ETA_TOT_2, P_D_2))
-    protocol = LuetkenhausProtocol(world, mode=mode)
+    protocol = SimpleProtocol(world, communication_speed=C)
     protocol.setup()
 
-    # # filter to discard events from time to time, use when using cutoff times
+    # filter to discard events from time to time, use when using cutoff times
     filter_interval = int(1e4)
 
+    # world.event_queue.add_recurring_filter(
+    # condition=lambda event: isinstance(event, DiscardQubitEvent) and
+    #                         event.type == "DiscardQubitEvent" and
+    #                         not event.req_objects_exist(),
+    # filter_interval=filter_interval,
+    # )
+
     world.event_queue.add_recurring_filter(
-    condition=lambda event: isinstance(event, DiscardQubitEvent) and
-                            event.type == "DiscardQubitEvent" and
+    condition=lambda event: event.type == "DiscardQubitEvent" and
                             not event.req_objects_exist(),
     filter_interval=filter_interval,
     )
@@ -238,8 +205,7 @@ if __name__ == "__main__":
 
     for i in T_P_array:
         print(f"preparation time: {i}")
-        p = run(L_1=90e3, L_2=91.2e3, params={"T_DP": 1, "T_P":i, "T_CUT":None, "ETA_TOT_1": eff_link_1*eta_1, "ETA_TOT_2": eff_link_2*eta_2}, max_iter=5, mode="sim")
-        states = p.data["state"]
+        p = run(L_1=90e3, L_2=91.2e3, params={"T_DP": 1, "T_P":i, "T_CUT": 0.1, "ETA_TOT_1": eff_link_1*eta_1, "ETA_TOT_2": eff_link_2*eta_2}, max_iter=5)
         evaluation = standard_bipartite_evaluation(p.data)
         print(evaluation)
 
