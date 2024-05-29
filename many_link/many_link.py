@@ -176,7 +176,7 @@ class ManylinkProtocol(Protocol):
             except StopIteration:
                 is_already_scheduled = False
             if not is_already_scheduled:
-                ent_swap_event = EntanglementSwappingEvent(time=self.world.event_queue.current_time, pairs=[left_pair, right_pair], station=self.stations[1])
+                ent_swap_event = EntanglementSwappingEvent(time=self.world.event_queue.current_time, pairs=[left_pair, right_pair], station=station)
                 self.scheduled_swappings[station] += [ent_swap_event]
                 self.world.event_queue.add_event(ent_swap_event)
 
