@@ -5,19 +5,19 @@ from functools import lru_cache
 
 
 from requsim.world import World
-from quantum_objects import Station, SchedulingSource
-from events import SourceEvent, EntanglementSwappingEvent
+from requsim.quantum_objects import Station, SchedulingSource
+from requsim.events import SourceEvent, EntanglementSwappingEvent
 from requsim.noise import NoiseModel, NoiseChannel
 from requsim.tools.noise_channels import w_noise_channel, z_noise_channel, y_noise_channel
 
-from protocol import MessageReadingProtocol
+from requsim.tools.protocol import Protocol
 
 
 from collections import defaultdict
 from warnings import warn
 from requsim.libs.aux_functions import apply_single_qubit_map, distance
 import requsim.libs.matrix as mat
-
+from requsim.noise import NoiseChannel
 
 from consts import SPEED_OF_LIGHT_IN_OPTICAL_FIBER as C
 from consts import ATTENUATION_LENGTH_IN_OPTICAL_FIBER as L_ATT
@@ -30,7 +30,7 @@ def construct_dephasing_noise_channel(dephasing_time):
     def dephasing_noise_channel(rho, t):
         return z_noise_channel(rho=rho, epsilon=lambda_dp(t))
 
-    return dephasing_noise_channel
+    return NoiseChannel(n_qubits=1, channel_function=dephasing_noise_channel)
 
 
 def construct_y_noise_channel(epsilon):
@@ -55,7 +55,7 @@ def is_sourceevent_between_stations(event, station1, station2):
     return isinstance(event, SourceEvent) and (station1 in event.source.target_stations) and (station2 in event.source.target_stations)
 
 
-class ManylinkProtocol(MessageReadingProtocol):
+class ManylinkProtocol(Protocol):
     def __init__(self, world, stations, sources, num_memories=1, communication_speed=C):
         self.stations = stations
         self.sources = sources
@@ -63,8 +63,6 @@ class ManylinkProtocol(MessageReadingProtocol):
         self.communication_speed = communication_speed
         self.time_list = []
         self.state_list = []
-        self.resource_cost_max_list = []
-        self.resource_cost_add_list = []
         self.scheduled_swappings = defaultdict(lambda: [])
         super(ManylinkProtocol, self).__init__(world=world)
 
@@ -109,8 +107,6 @@ class ManylinkProtocol(MessageReadingProtocol):
 
         self.time_list += [self.world.event_queue.current_time + comm_time]
         self.state_list += [long_range_pair.state]
-        self.resource_cost_max_list += [long_range_pair.resource_cost_max]
-        self.resource_cost_add_list += [long_range_pair.resource_cost_add]
         return
 
     def pairs_at_station(self, station):
@@ -118,11 +114,11 @@ class ManylinkProtocol(MessageReadingProtocol):
         pairs_left = []
         pairs_right = []
         for qubit in station.qubits:
-            pair = qubit.pair
+            pair = qubit.higher_order_object
             qubit_list = list(pair.qubits)
             qubit_list.remove(qubit)
             qubit_neighbor = qubit_list[0]
-            if self.stations.index(qubit_neighbor.station) < station_index:
+            if self.stations.index(qubit_neighbor._info["station"]) < station_index:  # accessing _info is discouraged, but one would need to structure the protocol differently to avoid that
                 pairs_left += [pair]
             else:
                 pairs_right += [pair]
@@ -180,7 +176,7 @@ class ManylinkProtocol(MessageReadingProtocol):
             except StopIteration:
                 is_already_scheduled = False
             if not is_already_scheduled:
-                ent_swap_event = EntanglementSwappingEvent(time=self.world.event_queue.current_time, pairs=[left_pair, right_pair])
+                ent_swap_event = EntanglementSwappingEvent(time=self.world.event_queue.current_time, pairs=[left_pair, right_pair], station=self.stations[1])
                 self.scheduled_swappings[station] += [ent_swap_event]
                 self.world.event_queue.add_event(ent_swap_event)
 
@@ -207,7 +203,8 @@ class ManylinkProtocol(MessageReadingProtocol):
             self._check_long_distance_pair()
         elif message["event_type"] == "SourceEvent" and message["resolve_successful"] is True:
             output_pair = message["output_pair"]
-            stations = [output_pair.qubit1.station, output_pair.qubit2.station]
+            stations = [output_pair.qubit1._info["station"], output_pair.qubit2._info["station"]]
+            # accessing _info is discouraged, but you would need to structure the protocol differently to avoid it
             for station in stations:
                 has_overflowed = self._check_station_overflow(station)
                 if has_overflowed:
@@ -223,7 +220,8 @@ class ManylinkProtocol(MessageReadingProtocol):
         elif message["event_type"] == "EntanglementSwappingEvent" and message["resolve_successful"] is True:
             self._check_new_source_events(message["swapping_station"])
             output_pair = message["output_pair"]
-            for station in [output_pair.qubit1.station, output_pair.qubit2.station]:
+            for station in [output_pair.qubit1._info["station"], output_pair.qubit2._info["station"]]:
+                # accessing _info is discouraged, but you would need to structure the protocol differently to avoid it
                 self._check_swapping(station)
             self._check_long_distance_pair()
         elif message["event_type"] == "EntanglementSwappingEvent" and message["resolve_successful"] is False:
@@ -263,7 +261,7 @@ def run(length, max_iter, params, num_links, cutoff_time=None, num_memories=1):
         eta_effective = 1 - (1 - eta) * (1 - P_D)**2
         trial_time = T_P + comm_time  # I don't think that paper uses latency time and loading time?
         random_num = np.random.geometric(eta_effective)
-        return random_num * trial_time, random_num
+        return random_num * trial_time
 
     @lru_cache()
     def state_generation(source):

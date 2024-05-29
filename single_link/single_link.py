@@ -7,10 +7,10 @@ sys.path.insert(0, os.path.abspath("."))
 # print("Directory: ", directory)
 
 import requsim
-from quantum_objects import Source, SchedulingSource, Station, Pair, Qubit
+from requsim.quantum_objects import Source, SchedulingSource, Station, Pair, Qubit
 from requsim.tools.protocol import TwoLinkProtocol
 from requsim.world import World
-from events import SourceEvent, GenericEvent, EntanglementSwappingEvent
+from requsim.events import SourceEvent, GenericEvent, EntanglementSwappingEvent
 from requsim.events import EventQueue, DiscardQubitEvent
 import requsim.libs.matrix as mat
 import numpy as np
@@ -18,6 +18,7 @@ from requsim.tools.noise_channels import x_noise_channel, y_noise_channel, z_noi
 from requsim.libs.aux_functions import apply_single_qubit_map
 from requsim.tools.evaluation import standard_bipartite_evaluation
 from warnings import warn
+from requsim.noise import NoiseChannel
 import math
 
 max_iter = 10**1
@@ -61,6 +62,7 @@ def convert_dB_to_efficiency(dB):
 
     return efficiency
 
+
 def construct_dephasing_noise_channel(dephasing_time):
     def lambda_dp(t):
         return (1 - np.exp(-t/dephasing_time)) / 2
@@ -68,7 +70,7 @@ def construct_dephasing_noise_channel(dephasing_time):
     def dephasing_noise_channel(rho, t):
         return z_noise_channel(rho=rho, epsilon=lambda_dp(t))
 
-    return dephasing_noise_channel
+    return NoiseChannel(n_qubits=1, channel_function=dephasing_noise_channel)
 
 
 
@@ -134,7 +136,7 @@ class LuetkenhausProtocol(TwoLinkProtocol):
                 self.source_B.schedule_event()
             return
         if num_right_pairs == 1 and num_left_pairs == 1:
-            ent_swap_event = EntanglementSwappingEvent(time=self.world.event_queue.current_time, pairs=[left_pairs[0], right_pairs[0]])
+            ent_swap_event = EntanglementSwappingEvent(time=self.world.event_queue.current_time, pairs=[left_pairs[0], right_pairs[0]], station=self.station_central)
             self.world.event_queue.add_event(ent_swap_event)
             return
 
@@ -178,7 +180,7 @@ def run(L_1, L_2, params, max_iter, mode="sim"):
         eta_effective = 1 - (1 - eta) * (1 - P_D)**2
         trial_time = T_P + comm_time
         random_num = np.random.geometric(eta_effective)
-        return random_num * trial_time, random_num
+        return random_num * trial_time
 
     def luetkenhaus_state_generation(source, ETA_TOT, P_D):
         state = np.dot(mat.phiplus, mat.H(mat.phiplus))
@@ -228,47 +230,47 @@ def run(L_1, L_2, params, max_iter, mode="sim"):
 if __name__ == "__main__":
 
     # evaluation on local computer, simple loop
-    # T_P_array = np.linspace(1e-6, 1e-6, 1)
-    # loss_1_db = 24.4
-    # loss_2_db = 23.4
-    # eff_link_1 = convert_dB_to_efficiency(loss_1_db)
-    # eff_link_2 = convert_dB_to_efficiency(loss_2_db)
-
-    # for i in T_P_array:
-    #     print(f"preparation time: {i}")
-    #     p = run(L_1=90e3, L_2=91.2e3, params={"T_DP": 1, "T_P":i, "T_CUT":T_CUT, "ETA_TOT_1": eff_link_1*eta_1, "ETA_TOT_2": eff_link_2*eta_2}, max_iter=5, mode="sim")
-    #     states = p.data["state"]
-    #     evaluation = standard_bipartite_evaluation(p.data)
-    #     print(evaluation)
-
-
-    # evaluation on cluster, split into jobs
-    task_index = int(os.environ["SLURM_ARRAY_TASK_ID"])
-
-    T_P_array = np.linspace(1e-6, 1e-8, 5)
+    T_P_array = np.linspace(1e-6, 1e-6, 1)
     loss_1_db = 24.4
     loss_2_db = 23.4
     eff_link_1 = convert_dB_to_efficiency(loss_1_db)
     eff_link_2 = convert_dB_to_efficiency(loss_2_db)
 
-    output_file = "results/single_link_central.txt"
-    with open(output_file, "a") as file:
-        # write parameters to the output file if it's the first task
-        if task_index == 0:
-            file.write("Parameters:\n")
-            file.write(f"Efficiency Link 1: efficiency link: {eff_link_1}, efficiency detector/source: {eta_1}\n")
-            file.write(f"Efficiency Link 2: efficiency link: {eff_link_2}, efficiency detector/source: {eta_2}\n")
-            file.write(f"T_DP = {T_2}, T_CUT = {T_CUT}, max_iter = {max_iter}, mode=sim\n")
-
-        prep_time = T_P_array[task_index]
-
-        p = run(L_1=90e3, L_2=91.2e3, params={"T_DP": 1, "T_P": prep_time, "T_CUT": T_CUT, "ETA_TOT_1": eff_link_1*eta_1, "ETA_TOT_2": eff_link_2*eta_2}, max_iter=max_iter, mode="sim")
+    for i in T_P_array:
+        print(f"preparation time: {i}")
+        p = run(L_1=90e3, L_2=91.2e3, params={"T_DP": 1, "T_P":i, "T_CUT":None, "ETA_TOT_1": eff_link_1*eta_1, "ETA_TOT_2": eff_link_2*eta_2}, max_iter=5, mode="sim")
+        states = p.data["state"]
         evaluation = standard_bipartite_evaluation(p.data)
-        fidelity = evaluation[1]
-        key_rate = evaluation[3]
+        print(evaluation)
 
-        # append the output to the file
-        file.write(f"Task {task_index}: T_P = {prep_time}, Fidelity = {fidelity}, Key rate per time = {key_rate}\n")
+
+    # # evaluation on cluster, split into jobs
+    # task_index = int(os.environ["SLURM_ARRAY_TASK_ID"])
+    #
+    # T_P_array = np.linspace(1e-6, 1e-8, 5)
+    # loss_1_db = 24.4
+    # loss_2_db = 23.4
+    # eff_link_1 = convert_dB_to_efficiency(loss_1_db)
+    # eff_link_2 = convert_dB_to_efficiency(loss_2_db)
+    #
+    # output_file = "results/single_link_central.txt"
+    # with open(output_file, "a") as file:
+    #     # write parameters to the output file if it's the first task
+    #     if task_index == 0:
+    #         file.write("Parameters:\n")
+    #         file.write(f"Efficiency Link 1: efficiency link: {eff_link_1}, efficiency detector/source: {eta_1}\n")
+    #         file.write(f"Efficiency Link 2: efficiency link: {eff_link_2}, efficiency detector/source: {eta_2}\n")
+    #         file.write(f"T_DP = {T_2}, T_CUT = {T_CUT}, max_iter = {max_iter}, mode=sim\n")
+    #
+    #     prep_time = T_P_array[task_index]
+    #
+    #     p = run(L_1=90e3, L_2=91.2e3, params={"T_DP": 1, "T_P": prep_time, "T_CUT": T_CUT, "ETA_TOT_1": eff_link_1*eta_1, "ETA_TOT_2": eff_link_2*eta_2}, max_iter=max_iter, mode="sim")
+    #     evaluation = standard_bipartite_evaluation(p.data)
+    #     fidelity = evaluation[1]
+    #     key_rate = evaluation[3]
+    #
+    #     # append the output to the file
+    #     file.write(f"Task {task_index}: T_P = {prep_time}, Fidelity = {fidelity}, Key rate per time = {key_rate}\n")
 
 
 
