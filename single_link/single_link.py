@@ -134,7 +134,7 @@ def run(L_1, L_2, params, max_iter):
     except KeyError as e:
         raise Exception('params["T_DP"] is a mandatory argument').with_traceback(e.__traceback__)
 
-    def luetkenhaus_time_distribution(source, ETA_TOT, P_D):
+    def time_distribution(source, ETA_TOT, P_D):
         comm_distance = np.max([np.abs(source.position - source.target_stations[0].position), np.abs(source.position - source.target_stations[1].position)])
         comm_time = 2 * comm_distance / C
         eta = ETA_TOT
@@ -143,7 +143,7 @@ def run(L_1, L_2, params, max_iter):
         random_num = np.random.geometric(eta_effective)
         return random_num * trial_time
 
-    def luetkenhaus_state_generation(source, ETA_TOT, P_D):
+    def state_generation(source, ETA_TOT, P_D):
         state = np.dot(mat.phiplus, mat.H(mat.phiplus))
         comm_distance = np.max([np.abs(source.position - source.target_stations[0].position), np.abs(source.position - source.target_stations[1].position)])
         storage_time = 2 * comm_distance / C
@@ -164,8 +164,8 @@ def run(L_1, L_2, params, max_iter):
     station_A = Station(world, position=0, memory_noise=None, dark_count_probability=P_D_1)
     station_central = Station(world, position=L_1, memory_noise=construct_dephasing_noise_channel(dephasing_time=T_2), memory_cutoff_time=T_CUT)
     station_B = Station(world, position=L_1+L_2, memory_noise=None, dark_count_probability=P_D_2)
-    source_A = SchedulingSource(world, position=L_1, target_stations=[station_A, station_central], time_distribution=lambda source: luetkenhaus_time_distribution(source, ETA_TOT_1, P_D_1), state_generation=lambda source: luetkenhaus_state_generation(source, ETA_TOT_1, P_D_1))
-    source_B = SchedulingSource(world, position=L_1, target_stations=[station_central, station_B], time_distribution=lambda source: luetkenhaus_time_distribution(source, ETA_TOT_2, P_D_2), state_generation=lambda source: luetkenhaus_state_generation(source, ETA_TOT_2, P_D_2))
+    source_A = SchedulingSource(world, position=L_1, target_stations=[station_A, station_central], time_distribution=lambda source: time_distribution(source, ETA_TOT_1, P_D_1), state_generation=lambda source: state_generation(source, ETA_TOT_1, P_D_1))
+    source_B = SchedulingSource(world, position=L_1, target_stations=[station_central, station_B], time_distribution=lambda source: time_distribution(source, ETA_TOT_2, P_D_2), state_generation=lambda source: state_generation(source, ETA_TOT_2, P_D_2))
     protocol = SimpleProtocol(world, communication_speed=C)
     protocol.setup()
 
