@@ -198,9 +198,9 @@ def run(L_1, L_2, params, max_iter, mode="sim"):
         return eta * (1 - P_D) / (1 - (1 - eta) * (1 - P_D)**2)
 
     world = World()
-    station_A = Station(world, position=0, memory_noise=None)
+    station_A = Station(world, position=0, memory_noise=None, dark_count_probability=P_D_1)
     station_central = Station(world, position=L_1, memory_noise=construct_dephasing_noise_channel(dephasing_time=T_2), memory_cutoff_time=T_CUT)
-    station_B = Station(world, position=L_1+L_2, memory_noise=None)
+    station_B = Station(world, position=L_1+L_2, memory_noise=None, dark_count_probability=P_D_2)
     source_A = SchedulingSource(world, position=L_1, target_stations=[station_A, station_central], time_distribution=lambda source: luetkenhaus_time_distribution(source, ETA_TOT_1, P_D_1), state_generation=lambda source: luetkenhaus_state_generation(source, ETA_TOT_1, P_D_1))
     source_B = SchedulingSource(world, position=L_1, target_stations=[station_central, station_B], time_distribution=lambda source: luetkenhaus_time_distribution(source, ETA_TOT_2, P_D_2), state_generation=lambda source: luetkenhaus_state_generation(source, ETA_TOT_2, P_D_2))
     protocol = LuetkenhausProtocol(world, mode=mode)
