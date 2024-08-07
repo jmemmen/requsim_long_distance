@@ -1,2 +1,0 @@
-/beegfs/home/users/j/jankamemmen/requsim_long_distance/single_link/single_link.py:157: FutureWarning: Initializing Protocol with setup-dependent arguments (like world) is no longer recommended and may be deprecated in future versions. Protocols should be initializeable without tying it to a specific scenario. Use the setup method to pass scenario-dependent arguments instead.
-  protocol = SimpleProtocol(world, communication_speed=C)
