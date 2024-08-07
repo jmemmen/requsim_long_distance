@@ -1,9 +1,0 @@
-Parameters:
-Efficiency Link 1: efficiency link: 0.003630780547701014, efficiency detector/source: 0.36
-Efficiency Link 2: efficiency link: 0.004570881896148752, efficiency detector/source: 0.06
-T_DP = 1, T_CUT = 0.5, max_iter = 1, mode=sim
-Task 0: T_P = 1e-06, Fidelity = 0.8131780678719058, Key rate per time = 0.08042396938078239
-Task 3: T_P = 2.5749999999999986e-07, Fidelity = 0.9089866907785518, Key rate per time = 0.12127355453794758
-Task 1: T_P = 7.525e-07, Fidelity = 0.9729283187542295, Key rate per time = 0.1638003851740505
-Task 4: T_P = 1e-08, Fidelity = 0.8166333635293435, Key rate per time = 0.136929194256963
-Task 2: T_P = 5.049999999999999e-07, Fidelity = 0.9058049556114998, Key rate per time = 0.10162003773952753
